@@ -4,7 +4,7 @@ from openai import OpenAI
 
 # 设置页面配置，包括页面标题、图标、布局等
 st.set_page_config(
-    page_title="Ai.智能伴侣",  # 设置页面标题
+    page_title="余哥出品",  # 设置页面标题
     page_icon="resources/my_emoji.png",  # 设置页面图标
     layout="wide",  # 设置页面布局为宽屏模式
     initial_sidebar_state="expanded",  # 设置侧边栏初始状态为展开
