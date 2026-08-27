@@ -5,36 +5,37 @@ from datetime import datetime
 import json
 import uuid
 
+# 设置页面的配置项
 st.set_page_config(
     page_title="AI智能伴侣",
     page_icon="🤖",
-    layout="wide",
-    initial_sidebar_state="expanded",
+    layout="wide", # 布局
+    initial_sidebar_state="expanded", # 控制的是侧边栏的状态
     menu_items={}
 )
 
-# --------------------------关键改动：获取访问用户唯一ID--------------------------
+# ============新增：区分每个访问用户，实现会话隔离============
 def get_user_id():
-    """每个浏览器访问者生成唯一ID，存到st.session_state，区分不同用户"""
+    """为每一个浏览器访问者分配唯一ID，保存在内存中"""
     if "user_id" not in st.session_state:
-        # uuid生成随机唯一标识，代表这个来访用户
         st.session_state.user_id = str(uuid.uuid4())
     return st.session_state.user_id
 
 def get_user_session_dir():
-    """每个用户独立文件夹 sessions/用户ID/"""
+    """每个用户独立目录 sessions/{user_id}/，不同用户数据互相隔离"""
     user_id = get_user_id()
-    user_dir = os.path.join("sessions", user_id)
-    os.makedirs(user_dir, exist_ok=True)
-    return user_dir
+    user_folder = os.path.join("sessions", user_id)
+    os.makedirs(user_folder, exist_ok=True)
+    return user_folder
 
 # 生成会话标识函数
 def generate_session_name():
     return datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-# 保存会话信息函数【修改：存到当前用户自己的文件夹】
+# 保存会话信息函数【修改：保存到当前访问用户专属文件夹】
 def save_session():
     if st.session_state.current_session:
+        # 构建新的会话对象
         session_data = {
             "nick_name": st.session_state.nick_name,
             "nature": st.session_state.nature,
@@ -43,10 +44,12 @@ def save_session():
         }
         user_dir = get_user_session_dir()
         file_path = os.path.join(user_dir, f"{st.session_state.current_session}.json")
+
+        # 保存会话数据
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(session_data, f, ensure_ascii=False, indent=2)
 
-# 加载当前用户所有会话列表
+# 加载所有的会话列表信息【只读取当前用户自己的会话】
 def load_sessions():
     session_list = []
     user_dir = get_user_session_dir()
@@ -55,15 +58,16 @@ def load_sessions():
         for filename in file_list:
             if filename.endswith(".json"):
                 session_list.append(filename[:-5])
-    session_list.sort(reverse=True)
+    session_list.sort(reverse=True) # 排序, 降序排列
     return session_list
 
-# 加载指定会话（只读取当前用户目录）
+# 加载指定的会话信息【只加载当前用户目录下文件】
 def load_session(session_name):
     try:
         user_dir = get_user_session_dir()
         file_path = os.path.join(user_dir, f"{session_name}.json")
         if os.path.exists(file_path):
+            # 读取会话数据
             with open(file_path, "r", encoding="utf-8") as f:
                 session_data = json.load(f)
                 st.session_state.messages = session_data["messages"]
@@ -73,13 +77,14 @@ def load_session(session_name):
     except Exception:
         st.error("加载会话失败!")
 
-# 删除会话
+# 删除会话信息函数【仅删除当前用户目录的会话】
 def delete_session(session_name):
     try:
         user_dir = get_user_session_dir()
         file_path = os.path.join(user_dir, f"{session_name}.json")
         if os.path.exists(file_path):
-            os.remove(file_path)
+            os.remove(file_path) # 删除文件
+            # 如果删除的是当前会话, 则需要更新消息列表
             if session_name == st.session_state.current_session:
                 st.session_state.messages = []
                 st.session_state.current_session = generate_session_name()
@@ -87,11 +92,13 @@ def delete_session(session_name):
         st.error("删除会话失败!")
 
 
+# 大标题
 st.title("AI智能伴侣")
 
-# 注意：部署到streamlit cloud不要读取本地图片resources/logo.png！云端没有这个文件，注释或者替换成网络图片
-# st.logo("resources/logo.png")
+# Logo ————完全保留，不做任何修改
+st.logo("resources/logo.png")
 
+# 系统提示词
 system_prompt = """
         你叫 %s，现在是用户的真实伴侣，请完全代入伴侣角色。
         规则：
@@ -107,71 +114,94 @@ system_prompt = """
         你必须严格遵守上述规则来回复用户。
     """
 
-# 初始化
+# 初始化聊天信息
 if "user_id" not in st.session_state:
     get_user_id()
 if "messages" not in st.session_state:
     st.session_state.messages = []
+# 昵称
 if "nick_name" not in st.session_state:
     st.session_state.nick_name = "小甜甜"
+# 性格
 if "nature" not in st.session_state:
     st.session_state.nature = "活泼开朗的东北姑娘"
+# 会话标识
 if "current_session" not in st.session_state:
     st.session_state.current_session = generate_session_name()
 
-
+# 展示聊天信息
 st.text(f"会话名称: {st.session_state.current_session}")
-for message in st.session_state.messages:
+for message in st.session_state.messages: # {"role": "user", "content": prompt}
     st.chat_message(message["role"]).write(message["content"])
 
+# 创建与AI大模型交互的客户端对象
+# 本地运行：使用环境变量；云端部署 Streamlit Cloud 使用 st.secrets
+try:
+    api_key = st.secrets["DEEPSEEK_API_KEY"]
+except:
+    api_key = os.environ.get('DEEPSEEK_API_KEY')
 
-client = OpenAI(
-    api_key=st.secrets["DEEPSEEK_API_KEY"],  # 重要！部署云端不能用环境变量os.environ，要用st.secrets保存密钥
-    base_url="https://api.deepseek.com"
-)
+client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
 
 
+# 左侧的侧边栏 - with: streamlit中上下文管理器
 with st.sidebar:
+    # 会话信息
     st.subheader("AI控制面板")
 
+    # 新建会话
     if st.button("新建会话", width="stretch", icon="✏️"):
+        # 1. 保存当前会话信息
         save_session()
-        if st.session_state.messages:
+
+        # 2. 创建新的会话
+        if st.session_state.messages: # 如果聊天信息非空, True; 否则,  False
             st.session_state.messages = []
             st.session_state.current_session = generate_session_name()
             save_session()
-            st.rerun()
+            st.rerun()  # 重新运行当前页面
 
+    # 会话历史
     st.text("会话历史")
     session_list = load_sessions()
     for session in session_list:
         col1,col2 = st.columns([4,1])
         with col1:
-            if st.button(session, width="stretch", icon="📄", key=f"load_{session}", type="primary" if session == st.session_state.current_session else "secondary"):
-                load_session(session)
-                st.rerun()
+           # 加载会话信息
+           if st.button(session, width="stretch", icon="📄", key=f"load_{session}", type="primary" if session == st.session_state.current_session else "secondary"):
+               load_session(session)
+               st.rerun()
         with col2:
+            # 删除会话信息
             if st.button("", width="stretch", icon="❌️", key=f"delete_{session}"):
                 delete_session(session)
                 st.rerun()
 
+    # 分割线
     st.divider()
+
+    # 伴侣信息
     st.subheader("伴侣信息")
+    # 昵称输入框
     nick_name = st.text_input("昵称", placeholder="请输入昵称", value=st.session_state.nick_name)
     if nick_name:
         st.session_state.nick_name = nick_name
 
+    # 性格输入框
     nature = st.text_area("性格", placeholder="请输入性格", value=st.session_state.nature)
     if nature:
         st.session_state.nature = nature
 
 
+# 消息输入框
 prompt = st.chat_input("请输入您要问的问题")
-if prompt:
+if prompt: # 字符串会自动转换为布尔值, 如果字符串非空, 则为True; ""否则为False
     st.chat_message("user").write(prompt)
     print("----------> 调用AI大模型, 提示词: ", prompt)
+    # 保存用户输入的提示词
     st.session_state.messages.append({"role": "user", "content": prompt})
 
+    # 调用AI大模型
     response = client.chat.completions.create(
         model="deepseek-chat",
         messages=[
@@ -181,7 +211,9 @@ if prompt:
         stream=True
     )
 
-    response_message = st.empty()
+    # 输出大模型返回的结果 (流式输出的解析方式)
+    response_message = st.empty() # 创建一个空的组件, 用于展示大模型返回的结果
+
     full_response = ""
     for chunk in response:
         if chunk.choices[0].delta.content is not None:
@@ -189,5 +221,8 @@ if prompt:
             full_response += content
             response_message.chat_message("assistant").write(full_response)
 
+    # 保存大模型返回的结果
     st.session_state.messages.append({"role": "assistant", "content": full_response})
+
+    # 保存会话信息
     save_session()
